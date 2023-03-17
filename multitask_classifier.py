@@ -135,6 +135,14 @@ def save_model(model, optimizer, args, config, filepath):
     print(f"save the model to {filepath}")
 
 
+def custom_iterator(iterable):
+    iterator = iter(iterable)
+    while True:
+        try:
+            yield next(iterator)
+        except StopIteration:
+            iterator = iter(iterable)
+
 ## Currently only trains on sst dataset
 def train_multitask(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
@@ -167,7 +175,7 @@ def train_multitask(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=para_dev_data.collate_fn)
 
-    iter_sts_data, iter_sst_data = iter(iter(cycle(sts_train_dataloader), cycle(sst_train_dataloader)))
+    iter_sts_data, iter_sst_data = iter(iter(custom_iterator(sts_train_dataloader), cycle(sst_train_dataloader)))
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,

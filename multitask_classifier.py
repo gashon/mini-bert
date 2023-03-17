@@ -13,7 +13,7 @@ from tqdm import tqdm
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask
+from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
 
 
 TQDM_DISABLE=True
@@ -224,6 +224,10 @@ def train_multitask(args):
 
             num_batches += 1
             train_loss += loss.item()
+
+            # print remaining batches
+            if i % 100 == 0:
+                print(f"Remaining batches: {len(para_train_dataloader) - num_batches}")
         
         print(f"Epoch {epoch} train loss: {train_loss / num_batches}")
 
@@ -239,7 +243,7 @@ def train_multitask(args):
         if s > best_score:
             best_score = s
             print(f"Saving model with paraphrase accuracy {paraphrase_accuracy}")
-            torch.save({'model': model.state_dict(), 'model_config': config}, args.save_path)
+            save_model(model, optimizer, args, config, args.filepath)
 
     # Load best model
     saved = torch.load(args.save_path)

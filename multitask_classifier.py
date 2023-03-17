@@ -101,7 +101,7 @@ class MultitaskBERT(nn.Module):
         pooled_output_1 = self.forward(input_ids_1, attention_mask_1)
         pooled_output_2 = self.forward(input_ids_2, attention_mask_2)
         pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=1)
-        pooled_output = self.paraphrase_dropout(pooled_output)
+        # pooled_output = self.paraphrase_dropout(pooled_output)
         logits = self.paraphrase_classifier(pooled_output)
         return logits
 

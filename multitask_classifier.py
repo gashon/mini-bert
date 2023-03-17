@@ -210,7 +210,7 @@ def train_multitask(args):
             # para loss
             b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'].to(device), batch['attention_mask_1'].to(device), batch['token_ids_2'].to(device), batch['attention_mask_2'].to(device), batch['labels'].to(device))
             para_logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-            para_loss = F.mse_loss(logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
+            para_loss = F.mse_loss(para_logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
 
             # sts loss
             sts_batch = next(iter_sts_data)

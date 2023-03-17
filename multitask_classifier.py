@@ -205,8 +205,8 @@ def train_multitask(args):
             self.labels = labels
 
     sst_chore = Chore(F.cross_entropy, sst_train_dataloader, model.predict_sentiment, lambda batch: extract_labels(batch, True))
-    sts_chore = Chore(lambda logits, b : F.cross_entropy(logits.sigmoid().round().flatten(), b.float().flatten().view(-1), reduction="sum") / args.batch_size, sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
-    para_chore = Chore(lambda logits, b : F.cross_entropy(logits.sigmoid().round().flatten(), b.float().flatten().view(-1), reduction="sum") / args.batch_size, para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
+    sts_chore = Chore(lambda logits, b : F.mse_loss(logits.flatten().view(-1), b.float().flatten()), sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
+    para_chore = Chore(lambda logits, b : F.binary_cross_entropy_with_logits(logits.flatten().view(-1), b.float().flatten()), para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):

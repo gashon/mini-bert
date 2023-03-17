@@ -143,13 +143,31 @@ def train_multitask(args):
     sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
     sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
 
+    ## sst
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
-
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
                                       collate_fn=sst_train_data.collate_fn)
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=sst_dev_data.collate_fn)
+
+    ## para
+    para_train_data = ParaphraseDataset(para_train_data, args)
+    para_dev_data = ParaphraseDataset(para_dev_data, args)
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size,
+                                        collate_fn=para_train_data.collate_fn)
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
+                                        collate_fn=para_dev_data.collate_fn)
+
+    ## sts
+    sts_train_data = SimilarityDataset(sts_train_data, args)
+    sts_dev_data = SimilarityDataset(sts_dev_data, args)
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size,
+                                        collate_fn=sts_train_data.collate_fn)       
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size,
+                                        collate_fn=sts_dev_data.collate_fn)         
+
+    iter_sts_data, iter_sst_data = iter(iter(cycle(sts_train_dataloader), cycle(sst_train_dataloader)))
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -165,43 +183,63 @@ def train_multitask(args):
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
-    best_dev_acc = 0
+    best_score = 0
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         num_batches = 0
-        for batch in tqdm(sst_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            b_ids, b_mask, b_labels = (batch['token_ids'],
-                                       batch['attention_mask'], batch['labels'])
+        
+        for i, batch in enumerate(tqdm(para_train_dataloader, disable=TQDM_DISABLE)):
+            # sst loss
+            sst_batch = next(iter_sst_data)
+            b_ids, b_mask, b_labels = (sst_batch['token_ids'].to(device), sst_batch['attention_mask'].to(device), sst_batch['labels'].to(device))
 
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
-            b_labels = b_labels.to(device)
+            sst_logits = model.predict_sentiment(b_ids, b_mask)
+            sst_loss = F.cross_entropy(sst_logits, b_labels)
+
+            # para loss
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'].to(device), batch['attention_mask_1'].to(device), batch['token_ids_2'].to(device), batch['attention_mask_2'].to(device), batch['labels'].to(device))
+            para_logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+            para_loss = F.mse_loss(logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
+
+            # sts loss
+            sts_batch = next(iter_sts_data)
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (sts_batch['token_ids_1'].to(device), sts_batch['attention_mask_1'].to(device), sts_batch['token_ids_2'].to(device), sts_batch['attention_mask_2'].to(device), sts_batch['labels'].to(device))
+            sts_logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+            sts_loss = F.mse_loss(logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
 
             optimizer.zero_grad()
-            logits = model.predict_sentiment(b_ids, b_mask)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-
+            loss = (sst_loss + para_loss + sts_loss) / 3
             loss.backward()
             optimizer.step()
 
-            train_loss += loss.item()
             num_batches += 1
+            train_loss += loss.item()
+        
+        print(f"Epoch {epoch} train loss: {train_loss / num_batches}")
 
-        train_loss = train_loss / (num_batches)
+        model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
+        # Evaluate on dev set
+        (paraphrase_accuracy, para_y_pred, para_sent_ids, 
+                sentiment_accuracy,sst_y_pred, sst_sent_ids,
+                sts_corr, sts_y_pred, sts_sent_ids) = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
-        train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
-        dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
+        # Save model if it's the best so far
+        # score = (paraphrase_accuracy + sentiment_accuracy + sts_corr) / 3
+        s = (paraphrase_accuracy + sentiment_accuracy + sts_corr) / 3
+        if s > best_score:
+            best_score = s
+            print(f"Saving model with paraphrase accuracy {paraphrase_accuracy}")
+            torch.save({'model': model.state_dict(), 'model_config': config}, args.save_path)
 
-        if dev_acc > best_dev_acc:
-            best_dev_acc = dev_acc
-            save_model(model, optimizer, args, config, args.filepath)
-
-        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
-
-
+    # Load best model
+    saved = torch.load(args.save_path)
+    model.load_state_dict(saved['model'])
+    model = model.to(device)
+    
+    return model
 
 def test_model(args):
     with torch.no_grad():

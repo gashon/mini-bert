@@ -175,7 +175,7 @@ def train_multitask(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=para_dev_data.collate_fn)
 
-    iter_sts_data, iter_sst_data = iter(iter(custom_iterator(sts_train_dataloader), cycle(sst_train_dataloader)))
+    iter_sts_data, iter_sst_data = iter(iter(custom_iterator(sts_train_dataloader), custom_iterator(sst_train_dataloader)))
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,

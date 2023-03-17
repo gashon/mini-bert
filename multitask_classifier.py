@@ -136,12 +136,9 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 def custom_iterator(iterable):
-    iterator = iter(iterable)
-    while True:
-        try:
-            yield next(iterator)
-        except StopIteration:
-            iterator = iter(iterable)
+    while True: 
+        for elem in iterable: 
+            yield elem 
 
 ## Currently only trains on sst dataset
 def train_multitask(args):

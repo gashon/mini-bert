@@ -249,7 +249,7 @@ def train_multitask(args):
             save_model(model, optimizer, args, config, args.filepath)
 
     # Load best model
-    saved = torch.load(args.save_path)
+    saved = torch.load(args.filepath)
     model.load_state_dict(saved['model'])
     model = model.to(device)
     

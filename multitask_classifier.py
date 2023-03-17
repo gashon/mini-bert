@@ -60,7 +60,7 @@ class MultitaskBERT(nn.Module):
 
         # paraphrase
         self.paraphrase_dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.paraphrase_classifier = nn.Linear(config.hidden_size, 2)
+        self.paraphrase_classifier = nn.Linear(config.hidden_size, 1)
 
         # sentiment
         self.sentiment_dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -115,7 +115,7 @@ class MultitaskBERT(nn.Module):
         ### TODO
         pooled_output_1 = self.forward(input_ids_1, attention_mask_1)["pooler_output"]
         pooled_output_2 = self.forward(input_ids_2, attention_mask_2)["pooler_output"]
-        pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=-1)
+        pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=1)
         pooled_output = self.similarity_dropout(pooled_output)
         logits = self.similarity_classifier(pooled_output)
         return logits

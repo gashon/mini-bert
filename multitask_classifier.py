@@ -215,7 +215,7 @@ def train_multitask(args):
             sts_batch = next(iter_sts_data)
             b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (sts_batch['token_ids_1'].to(device), sts_batch['attention_mask_1'].to(device), sts_batch['token_ids_2'].to(device), sts_batch['attention_mask_2'].to(device), sts_batch['labels'].to(device))
             sts_logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-            sts_loss = F.mse_loss(logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
+            sts_loss = F.mse_loss(sts_logits.sigmoid().round().flatten(), b_labels.flatten().view(-1), reduction='sum') / args.batch_size
 
             optimizer.zero_grad()
             loss = (sst_loss + para_loss + sts_loss) / 3

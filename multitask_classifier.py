@@ -192,7 +192,11 @@ def train_multitask(args):
     optimizer = AdamW(model.parameters(), lr=lr)
     best_score = 0
 
-    extract_labels = lambda batch, single_label : (batch['token_ids'].to(device), batch['attention_mask'].to(device)), batch['labels'].to(device) if single_label else (batch['token_ids'].to(device), batch['attention_mask'].to(device)), batch['labels'].to(device) 
+    def extract_labels(batch, single_label):
+        if single_label:
+            return batch['token_ids'].to(device), batch['attention_mask'].to(device), batch['labels'].to(device)
+        else:
+            return batch['token_ids'].to(device), batch['attention_mask'].to(device), batch['labels'].to(device)
     class Chore:
         def __init__(self, loss, dataloader, eval_fn, labels):
             self.loss = loss

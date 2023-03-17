@@ -214,7 +214,7 @@ def train_multitask(args):
         train_loss = 0
         num_batches = 0
 
-        for i, chore in enumerate([sst_chore, sts_chore, para_chore]):
+        for i, chore in enumerate([sts_chore, sst_chore, para_chore]):
             for batch in tqdm(chore.dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 optimizer.zero_grad()
                 

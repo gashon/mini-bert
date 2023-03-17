@@ -45,7 +45,7 @@ class BertSentimentClassifier(torch.nn.Module):
                 param.requires_grad = True
 
         # TODO
-        self.ln1 = nn.Linear(out_features=self.num_labels, in_features = config.hidden_size)
+        self.ln1 = torch.nn.Linear(out_features=self.num_labels, in_features = config.hidden_size)
         return
 
 
@@ -55,10 +55,10 @@ class BertSentimentClassifier(torch.nn.Module):
         # HINT: you should consider what is the appropriate output to return given that
         # the training loop currently uses F.cross_entropy as the loss function.
         # TODO
+        outputs = self.bert.forward(attention_mask=attention_mask, input_ids=input_ids)
 
-        # obtain the pooled representation of each sentence
-        pooled_output = self.bert(input_ids, attention_mask)["pooler_output"]
-        return F.log_softmax(self.linear(self.dropout(pooled_output)), dim=1)
+        logits = self.ln1(torch.nn.Dropout(p=config.hidden_dropout_prob)(outputs["pooler_output"])) 
+        return logits
 
 
 class SentimentDataset(Dataset):

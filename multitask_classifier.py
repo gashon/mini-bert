@@ -60,7 +60,7 @@ class MultitaskBERT(nn.Module):
 
         # paraphrase
         self.paraphrase_dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.paraphrase_classifier = nn.Linear(config.hidden_size, 2)
+        self.paraphrase_classifier = nn.Linear(2 * config.hidden_size, 2)
 
         # sentiment
         self.sentiment_dropout = nn.Dropout(config.hidden_dropout_prob)

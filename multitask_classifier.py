@@ -56,7 +56,7 @@ class MultitaskBERT(nn.Module):
         # baseline ---
         # similarity
         self.similarity_dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.similarity_classifier = nn.Linear(config.hidden_size, 1)
+        self.similarity_classifier = nn.Linear(2 * config.hidden_size, 1)
 
         # paraphrase
         self.paraphrase_dropout = nn.Dropout(config.hidden_dropout_prob)

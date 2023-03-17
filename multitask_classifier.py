@@ -194,9 +194,9 @@ def train_multitask(args):
 
     def extract_labels(batch, single_label):
         if single_label:
-            return batch['token_ids'].to(device), batch['attention_mask'].to(device), batch['labels'].to(device)
+            return (batch['token_ids'].to(device), batch['attention_mask'].to(device)), batch['labels'].to(device)
         else:
-            return batch['token_ids'].to(device), batch['attention_mask'].to(device), batch['labels'].to(device)
+            return (batch['token_ids_1'].to(device), batch['attention_mask_1'].to(device), batch['token_ids_2'].to(device), batch['attention_mask_2'].to(device)), batch['labels'].to(device)
     class Chore:
         def __init__(self, loss, dataloader, eval_fn, labels):
             self.loss = loss

@@ -192,45 +192,42 @@ def train_multitask(args):
     optimizer = AdamW(model.parameters(), lr=lr)
     best_score = 0
 
+    extract_labels = lambda batch, single_label : (batch['token_ids'].to(device), batch['attention_mask'].to(device)), batch['labels'].to(device) if single_label else (batch['token_ids'].to(device), batch['attention_mask'].to(device)), batch['labels'].to(device) 
+    class Chore:
+        def __init__(self, loss, dataloader, eval_fn, labels):
+            self.loss = loss
+            self.dataloader = dataloader
+            self.eval_fn = eval_fn
+            self.labels = labels
+
+    sst_chore = Chore(F.cross_entropy, sst_train_dataloader, model.predict_sentiment, lambda batch: extract_labels(batch, True))
+    sts_chore = Chore(lambda logits, b : F.cross_entropy(para_logits.sigmoid().round().flatten(), b_labels.float().flatten().view(-1), reduction="sum"), sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
+    para_chore = Chore(lambda logits, b : F.cross_entropy(para_logits.sigmoid().round().flatten(), b_labels.float().flatten().view(-1), reduction="sum"), para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
+
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         num_batches = 0
+
+        for i, chore in enumerate([sst_chore, sts_chore, para_chore]):
+            for batch in tqdm(chore.dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                optimizer.zero_grad()
+                
+                eval_params, b_labels = chore.labels(batch)
+                
+                logits = chore.eval_fn(*eval_params)
+                loss = chore.loss(logits, b_labels)
+
+                loss.backward()
+                optimizer.step()
+
+                train_loss += loss.item()
+                num_batches += 1
+
         
-        for i, batch in enumerate(tqdm(para_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE)):
-            # sst loss
-            sst_batch = next(iter_sst_data)
-            b_ids, b_mask, b_labels = (sst_batch['token_ids'].to(device), sst_batch['attention_mask'].to(device), sst_batch['labels'].to(device))
-
-            sst_logits = model.predict_sentiment(b_ids, b_mask)
-            sst_loss = F.cross_entropy(sst_logits, b_labels)
-
-            # para loss
-            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'].to(device), batch['attention_mask_1'].to(device), batch['token_ids_2'].to(device), batch['attention_mask_2'].to(device), batch['labels'].to(device))
-            para_logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-            para_loss = F.mse_loss(para_logits.sigmoid().round().flatten(), b_labels.float().flatten().view(-1), reduction='sum') / args.batch_size
-
-            # sts loss
-            sts_batch = next(iter_sts_data)
-            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (sts_batch['token_ids_1'].to(device), sts_batch['attention_mask_1'].to(device), sts_batch['token_ids_2'].to(device), sts_batch['attention_mask_2'].to(device), sts_batch['labels'].to(device))
-            sts_logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-            sts_loss = F.mse_loss(sts_logits.sigmoid().round().flatten(), b_labels.float().flatten().view(-1), reduction='sum') / args.batch_size
-
-            optimizer.zero_grad()
-            loss = (sst_loss + para_loss + sts_loss) / 3
-            loss.backward()
-            optimizer.step()
-
-            num_batches += 1
-            train_loss += loss.item()
-
-            # print remaining batches
-            if i % 100 == 0:
-                print(f"Remaining batches: {len(para_train_dataloader) - num_batches}")
-        
-        print(f"Epoch {epoch} train loss: {train_loss / num_batches}")
-
+        train_loss /= num_batches
+        print(f"Epoch {epoch} train loss: {train_loss}")
         model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
         # Evaluate on dev set
         (paraphrase_accuracy, para_y_pred, para_sent_ids, 
@@ -238,7 +235,6 @@ def train_multitask(args):
                 sts_corr, sts_y_pred, sts_sent_ids) = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
         # Save model if it's the best so far
-        # score = (paraphrase_accuracy + sentiment_accuracy + sts_corr) / 3
         s = (paraphrase_accuracy + sentiment_accuracy + sts_corr) / 3
         if s > best_score:
             best_score = s

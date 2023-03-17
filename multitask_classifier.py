@@ -85,7 +85,7 @@ class MultitaskBERT(nn.Module):
         Thus, your output should contain 5 logits for each sentence.
         '''
         ### TODO
-        pooled_output = self.forward(input_ids, attention_mask)["pooler_output"]
+        pooled_output = self.forward(input_ids, attention_mask)
         pooled_output = self.sentiment_dropout(pooled_output)
         logits = self.sentiment_classifier(pooled_output)
         return logits
@@ -199,7 +199,7 @@ def train_multitask(args):
         train_loss = 0
         num_batches = 0
         
-        for i, batch in enumerate(tqdm(para_train_dataloader, disable=TQDM_DISABLE)):
+        for i, batch in enumerate(tqdm(para_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE)):
             # sst loss
             sst_batch = next(iter_sst_data)
             b_ids, b_mask, b_labels = (sst_batch['token_ids'].to(device), sst_batch['attention_mask'].to(device), sst_batch['labels'].to(device))

@@ -14,7 +14,7 @@ from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
-
+from scipy.optimize import fminbound
 
 TQDM_DISABLE=True
 
@@ -66,7 +66,6 @@ class MultitaskBERT(nn.Module):
         self.sentiment_dropout = nn.Dropout(config.hidden_dropout_prob)
         self.sentiment_classifier = nn.Linear(config.hidden_size, len(config.num_labels))
 
-        ## todo extension
 
     def forward(self, input_ids, attention_mask):
         'Takes a batch of sentences and produces embeddings for them.'
@@ -134,6 +133,7 @@ def save_model(model, optimizer, args, config, filepath):
     torch.save(save_info, filepath)
     print(f"save the model to {filepath}")
 
+# *helper
 def custom_iterator(iterable):
     iterator = iter(iterable)
     while True:
@@ -141,6 +141,17 @@ def custom_iterator(iterable):
             yield next(iterator)
         except StopIteration:
             iterator = iter(iterable)
+
+# *helper
+def bergman_proximal_optimization(loss, model, device, alpha, t):
+    def f(lmbda):
+        with torch.no_grad():
+            z = [(1 - lmbda) * p + lmbda * q for p, q in zip(t, alpha)]
+            for param, z_val in zip(model.parameters(), z):
+                param.copy_(z_val)
+        return loss.item()
+
+    return fminbound(f, 0, 1)
 
 ## Currently only trains on sst dataset
 def train_multitask(args):
@@ -190,6 +201,8 @@ def train_multitask(args):
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
+    alpha = [param.detach().clone() for param in model.parameters()]
+
     best_score = 0
 
     def extract_labels(batch, single_label):
@@ -208,6 +221,7 @@ def train_multitask(args):
     sts_chore = Chore(lambda logits, b : F.mse_loss(logits.flatten().view(-1), b.float().flatten()), sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
     para_chore = Chore(lambda logits, b : F.binary_cross_entropy_with_logits(logits.flatten().view(-1), b.float().flatten()), para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
 
+
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
@@ -217,11 +231,16 @@ def train_multitask(args):
         for i, chore in enumerate([sts_chore, sst_chore, para_chore]):
             for batch in tqdm(chore.dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 optimizer.zero_grad()
-                
+                t = [param.detach().clone() for param in model.parameters()]
+
                 eval_params, b_labels = chore.labels(batch)
                 
                 logits = chore.eval_fn(*eval_params)
                 loss = chore.loss(logits, b_labels)
+
+                # Bergman Proximal Point Optimization after computing the loss
+                lmbda = bergman_proximal_optimization(loss, model, device, alpha, t)
+                alpha = [(1 - lmbda) * p + lmbda * q for p, q in zip(alpha, t)]
 
                 loss.backward()
                 optimizer.step()

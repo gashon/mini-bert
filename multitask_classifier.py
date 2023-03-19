@@ -187,8 +187,8 @@ def train_multitask(args):
                                         collate_fn=para_dev_data.collate_fn)
 
     m_neg_train_data = PairedSentencesDataset(para_train_data, args)
-    m_neg_train_dataloader = DataLoader(neg_train_data, shuffle=True, batch_size=args.batch_size,
-                                      collate_fn=neg_train_data.collate_fn)
+    m_neg_train_dataloader = DataLoader(m_neg_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=m_neg_train_data.collate_fn)
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,

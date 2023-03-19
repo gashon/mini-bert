@@ -52,8 +52,6 @@ class MultitaskBERT(nn.Module):
                 param.requires_grad = False
             elif config.option == 'finetune':
                 param.requires_grad = True
-        ### TODO
-
         # baseline ---
         # similarity
         self.similarity_dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -74,7 +72,6 @@ class MultitaskBERT(nn.Module):
         # Here, you can start by just returning the embeddings straight from BERT.
         # When thinking of improvements, you can later try modifying this
         # (e.g., by adding other layers).
-        ### TODO
         return self.bert(input_ids, attention_mask)["pooler_output"]
 
 
@@ -84,7 +81,6 @@ class MultitaskBERT(nn.Module):
         (0 - negative, 1- somewhat negative, 2- neutral, 3- somewhat positive, 4- positive)
         Thus, your output should contain 5 logits for each sentence.
         '''
-        ### TODO
         pooled_output = self.forward(input_ids, attention_mask)
         pooled_output = self.sentiment_dropout(pooled_output)
         logits = self.sentiment_classifier(pooled_output)
@@ -97,7 +93,6 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO
         pooled_output_1 = self.forward(input_ids_1, attention_mask_1)
         pooled_output_2 = self.forward(input_ids_2, attention_mask_2)
         pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=-1)
@@ -105,20 +100,17 @@ class MultitaskBERT(nn.Module):
         logits = self.paraphrase_classifier(pooled_output)
         return logits
 
-
+    # cosine similarity
     def predict_similarity(self,
                            input_ids_1, attention_mask_1,
                            input_ids_2, attention_mask_2):
         '''Given a batch of pairs of sentences, outputs a single logit corresponding to how similar they are.
         Note that your output should be unnormalized (a logit).
         '''
-        ### TODO
         pooled_output_1 = self.forward(input_ids_1, attention_mask_1)
         pooled_output_2 = self.forward(input_ids_2, attention_mask_2)
-        pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=-1)
-        pooled_output = self.similarity_dropout(pooled_output)
-        logits = self.similarity_classifier(pooled_output)
-        return logits
+        cosine_similarity = F.cosine_similarity(pooled_output_1, pooled_output_2)
+        return cosine_similarity
 
 def save_model(model, optimizer, args, config, filepath):
     save_info = {
@@ -237,6 +229,9 @@ def train_multitask(args):
     sts_chore = Chore(lambda logits, b : F.mse_loss(logits.flatten().view(-1), b.float().flatten()), sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
     para_chore = Chore(lambda logits, b : F.binary_cross_entropy_with_logits(logits.flatten().view(-1), b.float().flatten()), para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
 
+    # use cosine loss for sts
+    cosine_loss = nn.CosineEmbeddingLoss()
+    sts_chore.loss = lambda logits, b: cosine_loss(logits, b.float().flatten(), torch.ones_like(logits))
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):

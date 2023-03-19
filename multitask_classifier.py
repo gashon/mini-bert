@@ -14,7 +14,8 @@ from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
-from scipy.optimize import fminbound
+from scipy.optimize import fminbound # for bergman optimization
+import optuna # for hyperparameter tuning
 
 TQDM_DISABLE=True
 
@@ -153,6 +154,23 @@ def bergman_proximal_optimization(loss, model, device, alpha, t):
 
     return fminbound(f, 0, 1)
 
+# *helper (hp tuning)
+def hyper_tuning_objective(trial):
+    # Suggest hyperparameters using the trial object
+    lr = trial.suggest_loguniform("lr", 1e-5, 1e-3)
+    hidden_dropout_prob = trial.suggest_uniform("hidden_dropout_prob", 0.1, 0.5)
+    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64])
+
+    args.lr = lr
+    args.hidden_dropout_prob = hidden_dropout_prob
+    args.batch_size = batch_size
+
+    model = train_multitask(args)
+    (paraphrase_accuracy, _, _, sentiment_accuracy, _, _, sts_corr, _, _) = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
+
+    # Return the average score of the three tasks
+    return (paraphrase_accuracy + sentiment_accuracy + sts_corr) / 3
+
 ## Currently only trains on sst dataset
 def train_multitask(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
@@ -184,8 +202,6 @@ def train_multitask(args):
                                         collate_fn=para_train_data.collate_fn)
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=para_dev_data.collate_fn)
-
-    iter_sts_data, iter_sst_data = (iter(custom_iterator(sts_train_dataloader)), iter(custom_iterator(sst_train_dataloader)))
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -229,7 +245,7 @@ def train_multitask(args):
         num_batches = 0
 
         for i, chore in enumerate([sts_chore, sst_chore, para_chore]):
-            for batch in tqdm(chore.dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+            for batch in tqdm(chore.dataloader, desc=f'train-{epoch}'):
                 optimizer.zero_grad()
                 t = [param.detach().clone() for param in model.parameters()]
 
@@ -247,10 +263,6 @@ def train_multitask(args):
 
                 train_loss += loss.item()
                 num_batches += 1
-
-                # print progress
-                if num_batches % 100 == 0:
-                    print(f"Epoch {epoch} batch {num_batches} train loss: {train_loss / num_batches}")
         
         train_loss /= num_batches
         print(f"Epoch {epoch} train loss: {train_loss}")
@@ -323,6 +335,7 @@ def get_args():
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
+    parser.add_argument("--tune_hyperparams", type=bool, default=False)
 
     args = parser.parse_args()
     return args
@@ -331,5 +344,16 @@ if __name__ == "__main__":
     args = get_args()
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
     seed_everything(args.seed)  # fix the seed for reproducibility
-    train_multitask(args)
-    test_model(args)
+
+    if args.tune_hyperparams:
+        study = optuna.create_study(direction="maximize")
+        study.optimize(hyper_tuning_objective, n_trials=50)  # Run for 50 trials
+        print("Best trial:")
+        trial = study.best_trial
+        print("  Value: ", trial.value)
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
+    else:
+        train_multitask(args)
+        test_model(args)

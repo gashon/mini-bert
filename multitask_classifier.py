@@ -10,7 +10,7 @@ from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
 
-from datasets import SentencePairDatasetPositive, SentenceClassificationDataset, SentencePairDataset, \
+from datasets import PairedSentencesDataset, SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
@@ -186,7 +186,7 @@ def train_multitask(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=para_dev_data.collate_fn)
 
-    m_neg_train_data = SentencePairDatasetPositive(para_train_data, args)
+    m_neg_train_data = PairedSentencesDataset(para_train_data, args)
     m_neg_train_dataloader = DataLoader(neg_train_data, shuffle=True, batch_size=args.batch_size,
                                       collate_fn=neg_train_data.collate_fn)
 

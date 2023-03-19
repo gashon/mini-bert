@@ -307,3 +307,73 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
     print(f"Loaded {len(similarity_data)} {split} examples from {similarity_filename}")
 
     return sentiment_data, num_labels, paraphrase_data, similarity_data
+
+class PairedSentencesDataset(Dataset):
+    def __init__(self, input_dataset, parameters, is_regression=False):
+        # Filter the input dataset to include only positive samples
+        self.positive_dataset = [entry for entry in input_dataset if entry[2] == 1]
+        self.params = parameters
+        self.is_regression = is_regression
+        # Initialize the tokenizer
+        self.text_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+    def __len__(self):
+        # Return the length of the positive dataset
+        return len(self.positive_dataset)
+
+    def __getitem__(self, index):
+        # Return the sample at the given index
+        return self.positive_dataset[index]
+
+    def get_encoded_data(self, input_data):
+        encoded_data = self.text_tokenizer(input_data, return_tensors='pt', padding=True, truncation=True)
+        input_ids = torch.LongTensor(encoded_data['input_ids'])
+        mask = torch.LongTensor(encoded_data['attention_mask'])
+        type_ids = torch.LongTensor(encoded_data['token_type_ids'])
+
+        return input_ids, mask, type_ids
+
+    def pad_data(self, input_data):
+        # Extract individual fields from the input data
+        label_values = [x[2] for x in input_data]
+        sentence_ids = [x[3] for x in input_data]
+
+        first_sentence = [x[0] for x in input_data]
+        second_sentence = [x[1] for x in input_data]
+
+        # Tokenize and pad the first and second sentences
+        encoded_first = self.text_tokenizer(first_sentence, return_tensors='pt', padding=True, truncation=True)
+        encoded_second = self.text_tokenizer(second_sentence, return_tensors='pt', padding=True, truncation=True)
+
+        # Convert the tokenized data to tensors
+        input_ids_1, mask_1, type_ids_1 = self.get_encoded_data(first_sentence)
+        input_ids_2, mask_2, type_ids_2 = self.get_encoded_data(second_sentence)
+
+        # Convert labels to tensors
+        label_values = torch.DoubleTensor(label_values) if self.is_regression else torch.LongTensor(label_values)
+
+        # Return the padded and tensor-converted data
+        return (input_ids_1, type_ids_1, mask_1,
+                input_ids_2, type_ids_2, mask_2,
+                label_values, sentence_ids)
+
+    def collate_fn(self, combined_data):
+        # Pad the input data and convert it to tensors
+        (input_ids_1, type_ids_1, mask_1,
+         input_ids_2, type_ids_2, mask_2,
+         label_values, sentence_ids) = self.pad_data(combined_data)
+
+        # Package the data into a dictionary
+        batch_data = {
+                'input_ids_1': input_ids_1,
+                'type_ids_1': type_ids_1,
+                'mask_1': mask_1,
+                'input_ids_2': input_ids_2,
+                'type_ids_2': type_ids_2,
+                'mask_2': mask_2,
+                'label_values': label_values,
+                'sentence_ids': sentence_ids
+            }
+
+        # Return the batched data
+        return batch_data

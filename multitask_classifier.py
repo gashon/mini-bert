@@ -10,7 +10,7 @@ from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
 
-from datasets import SentenceClassificationDataset, SentencePairDataset, \
+from datasets import SentenceClassificationDataset, SentencePairDataset, SentencePairDatasetPositive \
     load_multitask_data, load_multitask_test_data
 
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask

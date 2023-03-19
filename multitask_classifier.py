@@ -31,8 +31,7 @@ def seed_everything(seed=11711):
 
 
 BERT_HIDDEN_SIZE = 768
-N_SENTIMENT_CLASSES = 5
-
+N_SENTIMENT_CLASSES = 5    
 
 class MultitaskBERT(nn.Module):
     '''
@@ -100,7 +99,6 @@ class MultitaskBERT(nn.Module):
         logits = self.paraphrase_classifier(pooled_output)
         return logits
 
-    # cosine similarity
     def predict_similarity(self,
                            input_ids_1, attention_mask_1,
                            input_ids_2, attention_mask_2):
@@ -109,8 +107,10 @@ class MultitaskBERT(nn.Module):
         '''
         pooled_output_1 = self.forward(input_ids_1, attention_mask_1)
         pooled_output_2 = self.forward(input_ids_2, attention_mask_2)
-        cosine_similarity = F.cosine_similarity(pooled_output_1, pooled_output_2)
-        return cosine_similarity
+        pooled_output = torch.cat((pooled_output_1, pooled_output_2), dim=-1)
+        pooled_output = self.similarity_dropout(pooled_output)
+        logits = self.similarity_classifier(pooled_output)
+        return logits
 
 def save_model(model, optimizer, args, config, filepath):
     save_info = {
@@ -125,15 +125,6 @@ def save_model(model, optimizer, args, config, filepath):
 
     torch.save(save_info, filepath)
     print(f"save the model to {filepath}")
-
-# *helper
-def custom_iterator(iterable):
-    iterator = iter(iterable)
-    while True:
-        try:
-            yield next(iterator)
-        except StopIteration:
-            iterator = iter(iterable)
 
 # *helper
 def bergman_proximal_optimization(loss, model, device, alpha, t):
@@ -195,6 +186,10 @@ def train_multitask(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=para_dev_data.collate_fn)
 
+    m_neg_train_data = SentencePairDatasetPositive(para_train_data, args)
+    m_neg_train_dataloader = DataLoader(neg_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=neg_train_data.collate_fn)
+
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
               'num_labels': num_labels,
@@ -229,9 +224,8 @@ def train_multitask(args):
     sts_chore = Chore(lambda logits, b : F.mse_loss(logits.flatten().view(-1), b.float().flatten()), sts_train_dataloader, model.predict_similarity, lambda batch: extract_labels(batch, False))
     para_chore = Chore(lambda logits, b : F.binary_cross_entropy_with_logits(logits.flatten().view(-1), b.float().flatten()), para_train_dataloader, model.predict_paraphrase, lambda batch: extract_labels(batch, False))
 
-    # use cosine loss for sts
-    cosine_loss = nn.CosineEmbeddingLoss()
-    sts_chore.loss = lambda logits, b: cosine_loss(logits, b.float().flatten(), torch.ones_like(logits))
+    ebd_forward = lambda input_ids_1, attention_mask_1, input_ids_2, attention_mask_2 : self.forward(input_ids_1, attention_mask_1), self.forward(input_ids_2, attention_mask_2)
+    m_n_ranking_loss_chore = Chore(NegativesRankingLoss(device), m_neg_train_dataloader, ebd_forward, lambda batch: extract_labels(batch, False))
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
@@ -239,7 +233,7 @@ def train_multitask(args):
         train_loss = 0
         num_batches = 0
 
-        for i, chore in enumerate([sts_chore, sst_chore, para_chore]):
+        for i, chore in enumerate([sts_chore, sst_chore, para_chore, m_n_ranking_loss_chore]):
             for batch in tqdm(chore.dataloader, desc=f'train-{epoch}'):
                 optimizer.zero_grad()
                 t = [param.detach().clone() for param in model.parameters()]
@@ -352,3 +346,17 @@ if __name__ == "__main__":
     else:
         train_multitask(args)
         test_model(args)
+
+
+class NegativesRankingLoss(nn.Module):
+    def __init__(self, device):
+        super(NegativesRankingLoss, self).__init__()
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
+        self.device = device
+
+    def forward(self, sentence_pairs, labels: Tensor):
+        e1, e2 = sentence_pairs
+
+        s = torch.mm(torch.nn.functional.normalize(e1, p=2, dim=1),  torch.nn.functional.normalize(e2, p=2, dim=1).transpose(0, 1))
+        labels = torch.tensor(range(len(s)), dtype=torch.long, device=self.device)  
+        return nn.CrossEntropyLoss(s * 16, labels)
